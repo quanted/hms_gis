@@ -31,9 +31,12 @@ namespace PercentArea.Models
     {        
         public List<Object> CalculateDataTable(string polyfile)
         {
+            //Calling EPA WATERS:
+            //https://ofmpub.epa.gov/waters10/SpatialAssignment.Service?pGeometry=POINT(-76.7498+37.5)&pLayer=NHDPLUS_CATCHMENT&pAssignmentHint=9894716&pReturnGeometry=TRUE
             //List<GeoAPI.Geometries.IGeometry> polys = new List<GeoAPI.Geometries.IGeometry>();
             List<GeoAPI.Geometries.IGeometry> squares = new List<GeoAPI.Geometries.IGeometry>();
             ArrayList polys = new ArrayList();
+            ArrayList polyfeats = new ArrayList();
             List<Object> infoTable = new List<Object>();
             double squareArea = 0;//0.015625;
             double gridArea = 0;
@@ -112,7 +115,10 @@ namespace PercentArea.Models
                 
 
                 List<Object> huc8Table = new List<Object>();
-                huc8Table.Add(new KeyValuePair<string, string>("HUC 8 ID: ", result[0].Attributes[featureParams[1]].ToString()));
+                Dictionary<string, string> h8 = new Dictionary<string, string>();
+                h8.Add("HUC 8 ID: ", result[0].Attributes[featureParams[1]].ToString());
+                huc8Table.Add(h8);
+                //huc8Table.Add(new KeyValuePair<string, string>("HUC 8 ID: ", result[0].Attributes[featureParams[1]].ToString()));
                 
                 for (int i = 0; i < result.Count; i++)
                 {
@@ -123,11 +129,17 @@ namespace PercentArea.Models
                     }
                     else
                     {
-                        huc12Table.Add(new KeyValuePair<string, string>("HUC 12 ID: ", result[i].Attributes["HUC_12"].ToString()));
+                        Dictionary<string, string> h12 = new Dictionary<string, string>();
+                        h12.Add("HUC 12 ID: ", result[i].Attributes["HUC_12"].ToString());
+                        huc12Table.Add(h12);
+                        //huc12Table.Add(new KeyValuePair<string, string>("HUC 12 ID: ", result[i].Attributes["HUC_12"].ToString()));
                     }
-                    
+
                     catchmentID = result[i].Attributes[featureParams[0]].ToString();
-                    huc12Table.Add(new KeyValuePair<string, string>("Catchment ID: ", catchmentID));
+                    Dictionary<string, string> cm = new Dictionary<string, string>();
+                    cm.Add("Catchment ID: ", catchmentID);
+                    huc12Table.Add(cm);
+                    //huc12Table.Add(new KeyValuePair<string, string>("Catchment ID: ", catchmentID));
                     foreach (GeoAPI.Geometries.IGeometry s in squares)
                     {
                         double interArea = 0.0;
@@ -184,9 +196,11 @@ namespace PercentArea.Models
 
                 //This block is for setting projection parameters of input shapefile and projecting it to NLDAS grid
                 //Reprojecting of coordinates is not needed for NHDPlus V2
-
                 string line = System.IO.File.ReadAllText(projfile);
-                string[] projParams = { "PARAMETER", @"PARAMETER[""latitude_Of_origin"",0]," };//@"PARAMETER[""false_easting"",0],", @"PARAMETER[""false_northing"",0],", @"PARAMETER[""central_meridian"",0],", @"PARAMETER[""standard_parallel_1"",0],", @"PARAMETER[""standard_parallel_2"",0],", @"PARAMETER[""latitude_Of_origin"",0]," };
+                //string line = @"PROJCS[""unnamed"",GEOGCS[""unnamed ellipse"",DATUM[""unknown"",SPHEROID[""unnamed"",6378137,0]],PRIMEM[""Greenwich"",0],UNIT[""degree"",0.0174532925199433]],PROJECTION[""Mercator_2SP""],PARAMETER[""latitude_of_origin"",0],PARAMETER[""standard_parallel_1"",0],PARAMETER[""central_meridian"",0],PARAMETER[""false_easting"",0],PARAMETER[""false_northing"",0],UNIT[""Meter"",1]]";//System.IO.File.ReadAllText(projfile);
+                
+                string[] projParams = { "PARAMETER", @"PARAMETER[""latitude_of_origin"",0]," };//@"PARAMETER[""false_easting"",0],", @"PARAMETER[""false_northing"",0],", @"PARAMETER[""central_meridian"",0],", @"PARAMETER[""standard_parallel_1"",0],", @"PARAMETER[""standard_parallel_2"",0],", @"PARAMETER[""latitude_Of_origin"",0]," };
+
                 int ptr = 0;
                 foreach (string x in projParams)
                 {
@@ -210,8 +224,10 @@ namespace PercentArea.Models
 
 
                 //Read geometries from both shapefiles and store in array lists
-                //As well as calculate shapefile areas ahead of time
+                
                 ShapefileDataReader reader = new ShapefileDataReader(polyfile, NetTopologySuite.Geometries.GeometryFactory.Default);
+                DbaseFileHeader header = reader.DbaseHeader;
+                string huc8 = "";
                 while (reader.Read())
                 {
                     //Reprojection not needed for NHDPLUSV2
@@ -226,22 +242,49 @@ namespace PercentArea.Models
                     Coordinate[] listofpts = cordlist.ToCoordinateArray();
                     IGeometryFactory geoFactory = new NetTopologySuite.Geometries.GeometryFactory();
                     NetTopologySuite.Geometries.LinearRing linear = (NetTopologySuite.Geometries.LinearRing)new GeometryFactory().CreateLinearRing(listofpts);
+
+                    Feature feature = new Feature();
+                    AttributesTable attributesTable = new AttributesTable();
+                    string[] keys = new string[header.NumFields];
+                    IGeometry geometry = (Geometry)reader.Geometry;
+                    for (int i = 0; i < header.NumFields; i++)
+                    {
+                        DbaseFieldDescriptor fldDescriptor = header.Fields[i];
+                        keys[i] = fldDescriptor.Name;
+                        attributesTable.AddAttribute(fldDescriptor.Name, reader.GetValue(i));
+                    }
+                    feature.Geometry = geometry;
+                    feature.Attributes = attributesTable;
+                    polyfeats.Add(feature.Attributes);
+                    huc8 = attributesTable.GetValues()[5].ToString();
                     Polygon projPoly = new Polygon(linear, null, geoFactory);
-                    
                     polys.Add(projPoly);
                     polygonArea += projPoly.Area;
                 }
                 reader.Dispose();
                 
                 List<Object> huc8Table = new List<Object>();
-                huc8Table.Add(new KeyValuePair<string, string>("HUC 8 ID: ", catchmentID));
-                
-                foreach(Polygon p in polys)
+                Dictionary<string, string> h8 = new Dictionary<string, string>();
+                h8.Add("HUC 8 ID: ", catchmentID);
+                huc8Table.Add(h8);
+
+                int j = 0;
+                foreach (Polygon p in polys)
                 {
                     List<Object> huc12Table = new List<Object>();
-                    huc12Table.Add(new KeyValuePair<string, string>("HUC 12 ID: ", null));
+                    Dictionary<string, string> cm = new Dictionary<string, string>();
+                    //
+                    AttributesTable tab = (AttributesTable)polyfeats[j];
+                    object[] valuesl = tab.GetValues();
+                    cm.Add("HUC 12 ID: ", valuesl[17].ToString());
+                    huc12Table.Add(cm);
+                    //huc12Table.Add(new KeyValuePair<string, string>("HUC 12 ID: ", null));
                     catchmentID = null;//result[i].Attributes["OBJECTID"].ToString();
-                    huc12Table.Add(new KeyValuePair<string, string>("Catchment ID: ", catchmentID));
+
+                    Dictionary<string, string> cm2 = new Dictionary<string, string>();
+                    cm2.Add("Catchment ID: ", catchmentID);
+                    huc12Table.Add(cm2);
+                    //huc12Table.Add(new KeyValuePair<string, string>("Catchment ID: ", catchmentID));
                     foreach (GeoAPI.Geometries.IGeometry s in squares)
                     {
                         double interArea = 0.0;
@@ -263,6 +306,7 @@ namespace PercentArea.Models
 
                     }
                     huc8Table.Add(huc12Table);
+                    j++;
                 }
                 infoTable.Add(huc8Table);
             }
@@ -278,9 +322,6 @@ namespace PercentArea.Models
                 dir.Delete(true);
             }*/
             //del.Delete(true);
-            /////
-            //infoTable.Add(new List<Object>() { elapsedTime, elapsedTime, elapsedTime, elapsedTime });
-            //////
 
             return infoTable;
         }

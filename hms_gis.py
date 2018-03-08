@@ -5,16 +5,32 @@ from osgeo import ogr, osr
 #import geopandas
 import pandas as pd
 import matplotlib.pyplot as plt
-import shapefile
+import urllib.request
+from zipfile import *
+import shutil
 import json
 import time
+import os
 
-def main(shapefile, gridfile):
+def main(huc_8_num, com_id_num):
+	start = time.time()
 	table = []
 	colNames = []
-	start = time.time()
-	shape = ogr.Open(shapefile)
-	nldas = ogr.Open(gridfile)
+	url = 'ftp://newftp.epa.gov/exposure/BasinsData/NHDPlus21/NHDPlus' + str(huc_8_num) + '.zip'
+	nldasurl = 'https://ldas.gsfc.nasa.gov/nldas/gis/NLDAS_Grid_Reference.zip'
+	shapefile = urllib.request.urlretrieve(url, 'shape.zip')
+	gridfile = urllib.request.urlretrieve(nldasurl, 'grid.zip')
+
+	with ZipFile('shape.zip') as myzip:
+		myzip.extractall()
+	with ZipFile('grid.zip') as myzip:
+		myzip.extractall('NLDAS')
+
+	sfile = 'NHDPlus' + str(huc_8_num) + '/Drainage/Catchment.shp'
+	gfile = 'NLDAS/NLDAS_Grid_Reference.shp'
+
+	shape = ogr.Open(sfile)
+	nldas = ogr.Open(gfile)
 
 	shapeLayer = shape.GetLayer()
 	nldasLayer = nldas.GetLayer()
@@ -32,9 +48,10 @@ def main(shapefile, gridfile):
 	if('COMID' in colNames):
 		huc12s = [None] * len(shapeLayer)	#No huc 12s
 		for feature in shapeLayer:
-			polygons.append(feature)
-			coms.append(feature.GetField('COMID'))
-			huc8s.append(feature.GetField('HUC8'))
+			if(feature.GetField('COMID') == int(com_id_num)): # Only focusing on the given catchment argument
+				polygons.append(feature)
+				coms.append(feature.GetField('COMID'))
+				huc8s.append(feature.GetField('HUC8'))
 	elif('HUC_8' in colNames):
 		coms = [None] * len(shapeLayer)		#No catchments
 		for feature in shapeLayer:
@@ -84,7 +101,15 @@ def main(shapefile, gridfile):
 	#write json to file?
 	print(jsonOut)
 	end = time.time()
-	#print(end-start)
+	print(end - start)
+	shape = None
+	nldas = None
+	#Delete zipfiles and extracted shapefiles
+	os.remove('grid.zip')
+	os.remove('shape.zip')
+	shutil.rmtree('NHDPlus' + str(huc_8_num))
+	shutil.rmtree('NLDAS')
+
 
 if __name__ == "__main__":
 	main(sys.argv[1], sys.argv[2])
